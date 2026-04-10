@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>humacli</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0a;--surface:#111;--border:#222;--border2:#2a2a2a;
+  --green:#39d98a;--yellow:#ffe566;--cyan:#5ecfff;
+  --red:#ff6b6b;--orange:#ffaa44;--purple:#b09fff;
+  --muted:#444;--dim:#2a2a2a;--text:#bbb;
+}
+html,body{background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;min-height:100vh}
+#app{max-width:980px;margin:0 auto;padding:2rem 1.5rem 3rem}
+header{margin-bottom:1.5rem;display:flex;align-items:baseline;gap:1rem}
+header h1{font-size:1rem;font-weight:600;color:var(--green);letter-spacing:.05em}
+header span{font-size:11px;color:var(--muted)}
+#terminal{
+  background:var(--surface);border:1px solid var(--border);border-radius:6px;
+  padding:14px 16px;height:440px;overflow-y:auto;margin-bottom:12px;
+  line-height:1.9;scrollbar-width:thin;scrollbar-color:#222 transparent
+}
+#terminal::-webkit-scrollbar{width:3px}
+#terminal::-webkit-scrollbar-thumb{background:#222}
+.t-input{color:#555}
+.t-verb {color:var(--green)}
+.t-noun {color:var(--cyan)}
+.t-mod  {color:var(--orange)}
+.t-key  {color:var(--purple)}
+.t-fam  {color:var(--yellow)}
+.t-pred {color:var(--yellow)}
+.t-cmd  {color:var(--cyan)}
+.t-err  {color:var(--red)}
+.t-dim  {color:var(--dim)}
+.t-ok   {color:var(--green)}
+#input-row{display:flex;gap:8px}
+#inp{
+  flex:1;background:var(--surface);border:1px solid var(--border2);
+  border-radius:5px;padding:9px 13px;font-family:'JetBrains Mono',monospace;
+  font-size:13px;color:#ddd;outline:none;transition:border-color .15s
+}
+#inp:focus{border-color:#3a3a3a}
+#inp::placeholder{color:var(--muted)}
+#btn,#clr{
+  padding:9px 18px;background:transparent;border:1px solid #2a2a2a;
+  border-radius:5px;color:var(--text);font-family:'JetBrains Mono',monospace;
+  font-size:12px;cursor:pointer;transition:background .12s
+}
+#btn:hover,#clr:hover{background:#1a1a1a}
+#examples{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
+.ex{
+  font-size:10px;padding:3px 9px;border-radius:20px;
+  border:1px solid #1e1e1e;color:#3a3a3a;cursor:pointer;
+  transition:color .12s,border-color .12s
+}
+.ex:hover{color:#666;border-color:#333}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>// humacli</h1>
+    <span>3-layer pipeline · verb+noun+major → family → slots → command</span>
+  </header>
+  <div id="terminal"></div>
+  <div id="input-row">
+    <input id="inp" placeholder='try: list python files in my Downloads larger than 1MB' autocomplete="off" spellcheck="false"/>
+    <button id="btn">⏎ run</button>
+    <button id="clr">✕ clear</button>
+  </div>
+  <div id="examples">
+    <span class="ex" onclick="run(this.textContent)">list python files in my Downloads larger than 1MB</span>
+    <span class="ex" onclick="run(this.textContent)">find file(*.log) in /var/log modified in last 7 days containing ERROR</span>
+    <span class="ex" onclick="run(this.textContent)">show hidden files in current directory</span>
+    <span class="ex" onclick="run(this.textContent)">find .py files in current folder recursively</span>
+    <span class="ex" onclick="run(this.textContent)">what folders under my home have python files</span>
+    <span class="ex" onclick="run(this.textContent)">list process(python)</span>
+    <span class="ex" onclick="run(this.textContent)">list top 5 processes</span>
+    <span class="ex" onclick="run(this.textContent)">list processes by cpu</span>
+    <span class="ex" onclick="run(this.textContent)">kill process 1234</span>
+    <span class="ex" onclick="run(this.textContent)">force kill firefox</span>
+    <span class="ex" onclick="run(this.textContent)">kill node</span>
+    <span class="ex" onclick="run(this.textContent)">open chrome</span>
+    <span class="ex" onclick="run(this.textContent)">copy ~/docs/report.pdf to ~/backup</span>
+    <span class="ex" onclick="run(this.textContent)">delete folder /tmp/cache forcefully</span>
+    <span class="ex" onclick="run(this.textContent)">tail follow /var/log/syslog</span>
+    <span class="ex" onclick="run(this.textContent)">show last 50 lines of ~/logs/app.log</span>
+    <span class="ex" onclick="run(this.textContent)">find files in ~/humaipam name(*.js)</span>
+    <span class="ex" onclick="run(this.textContent)">activate venv in ~/myproject</span>
+    <span class="ex" onclick="run(this.textContent)">install requests</span>
+    <span class="ex" onclick="run(this.textContent)">find ~/src -name "*.js" | grep TODO</span>
+  </div>
+</div>
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+//section:verb_bits
+// ─────────────────────────────────────────────────────────────────────────────
+const V = {
+  list:1<<0, find:1<<1, create:1<<2, delete:1<<3, read:1<<4,
+  copy:1<<5, move:1<<6, navigate:1<<7, grep:1<<8, tail:1<<9,
+  date:1<<10, inspect:1<<11, kill:1<<12, open:1<<13, source:1<<14, pip:1<<15,
+};
+
+//section:noun_bits
+const N = {
+  file:1<<0, directory:1<<1, process:1<<2, disk:1<<3, app:1<<4,
+  log:1<<5, package:1<<6, venv:1<<7, script:1<<8, requirements:1<<9,
+  symlink:1<<10, archive:1<<11, image:1<<12, video:1<<13, audio:1<<14,
+  document:1<<15, config:1<<16, database:1<<17, network:1<<18, user:1<<19,
+  permission:1<<20, git:1<<21, remote:1<<22, container:1<<23, service:1<<24,
+  env_var:1<<25, alias:1<<26, history:1<<27, clipboard:1<<28,
+};
+
+// major modifier bits — only the discriminators that switch command family
+//section:major_bits
+const J = {
+  glob:      1<<0,  // named/ext/lang → find -name
+  size:      1<<1,  // larger than → find -size
+  modified:  1<<2,  // modified in last → find -mtime
+  containing:1<<3,  // containing X → grep
+  pid:       1<<4,  // bare number → kill <pid>
+  follow:    1<<5,  // follow/live → tail -f
+  app:       1<<6,  // known app name → open -a / pkill
+  lines:     1<<7,  // top N / last N lines
+  sort:      1<<8,  // by cpu/size/date
+  tree:      1<<9,  // process tree
+};
+
+//section:verb_synonyms
+const VERB_SYNS = {
+  list:     ['list','show','display','what','which','enumerate','show me','look at'],
+  find:     ['find','locate','search','where','look for','search for','seek'],
+  create:   ['create','make','new','mkdir','touch','init','initialise','initialize','make new','make a new'],
+  delete:   ['delete','remove','rm','destroy','erase','wipe','drop','unlink'],
+  read:     ['read','cat','view','less','more','peek','open file','output'],
+  copy:     ['copy','cp','duplicate','clone','backup'],
+  move:     ['move','mv','rename','transfer','migrate','relocate'],
+  navigate: ['navigate','cd','go','go to','jump to','navigate to','change directory','switch to','enter'],
+  grep:     ['grep','filter','search inside','search in','search text','find text','find inside'],
+  tail:     ['tail','watch','stream','monitor log'],
+  date:     ['date','time','show date','show time','current date','current time','what time','what date'],
+  inspect:  ['ps','inspect','processes','running processes','show processes','list processes','show all processes'],
+  kill:     ['kill','terminate','stop process','force kill','hard kill','kill process','kill pid'],
+  open:     ['open','launch','start','run','open app','launch app','start app'],
+  source:   ['source','activate','load','activate venv','activate virtualenv','activate env'],
+  pip:      ['pip','install','uninstall','requirements','pip install','pip uninstall'],
+};
+
+//section:noun_synonyms
+const NOUN_SYNS = {
+  file:         ['file','files','document','documents','doc','docs','item','items','log file'],
+  directory:    ['directory','directories','folder','folders','dir','dirs','subdirectory','subfolder'],
+  process:      ['process','processes','task','tasks','job','daemon'],
+  disk:         ['disk','space','storage','drive','volume'],
+  app:          ['app','application','program','browser'],
+  log:          ['log','logs','logfile','logfiles'],
+  package:      ['package','packages','library','libraries','module','modules','dependency','dependencies'],
+  venv:         ['venv','virtualenv','virtual environment','env'],
+  script:       ['script','scripts'],
+  requirements: ['requirements','requirements.txt','deps'],
+  symlink:      ['symlink','link','shortcut'],
+  archive:      ['archive','zip','tar','gz','tarball'],
+  image:        ['image','images','png','jpg','gif','jpeg'],
+  video:        ['video','videos','mp4','mov','avi'],
+  audio:        ['audio','mp3','wav','flac'],
+  document:     ['document','documents','pdf','doc','docx'],
+  config:       ['config','configuration','ini','toml','dotenv'],
+  database:     ['database','db','sqlite'],
+  network:      ['network','port','socket','interface'],
+  user:         ['user','users','account'],
+  permission:   ['permission','permissions','chmod','chown'],
+  git:          ['git','repo','repository','branch','commit'],
+  remote:       ['remote','ssh','scp','server'],
+  container:    ['container','containers','docker','podman'],
+  service:      ['service','services','daemon','systemctl','launchctl'],
+  env_var:      ['env_var','environment variable','variable'],
+  alias:        ['alias','aliases'],
+  history:      ['history','shell history','command history'],
+  clipboard:    ['clipboard','pbcopy','pbpaste','clip'],
+};
+
+//section:lang_map
+const LANG_MAP = {
+  python:'*.py', javascript:'*.js', typescript:'*.ts', ruby:'*.rb',
+  bash:'*.sh', shell:'*.sh', go:'*.go', golang:'*.go', rust:'*.rs',
+  java:'*.java', css:'*.css', html:'*.html', json:'*.json',
+  markdown:'*.md', yaml:'*.yaml', sql:'*.sql', php:'*.php',
+  swift:'*.swift', kotlin:'*.kt', cpp:'*.cpp', 'c++':'*.cpp',
+};
+
+//section:app_map
+const APP_MAP = {
+  'google chrome':'Google Chrome', chrome:'Google Chrome',
+  safari:'Safari', firefox:'Firefox', finder:'Finder',
+  terminal:'Terminal', iterm2:'iTerm', iterm:'iTerm',
+  'vs code':'Visual Studio Code', vscode:'Visual Studio Code',
+  claude:'Claude', slack:'Slack', zoom:'Zoom',
+  spotify:'Spotify', notes:'Notes', xcode:'Xcode',
+};
+
+//section:signal_map
+const SIGNAL_MAP = {
+  'force kill':'-9', 'hard kill':'-9', '-9':'-9', 'sigkill':'-9',
+  'graceful':'-15', 'terminate':'-15', 'sigterm':'-15', '-15':'-15',
+  'hangup':'-1', 'sighup':'-1', 'reload':'-1', '-1':'-1',
+  'interrupt':'-2', 'sigint':'-2', '-2':'-2',
+  'quit':'-3', 'sigquit':'-3', '-3':'-3',
+  'stop':'-19', 'sigstop':'-19', 'pause':'-19', '-19':'-19',
+  'continue':'-18', 'sigcont':'-18', 'resume':'-18', '-18':'-18',
+  'usr1':'-30', 'sigusr1':'-30', '-30':'-30',
+  'usr2':'-31', 'sigusr2':'-31', '-31':'-31',
+};
+
+//section:size_units
+const SIZE_UNITS = {
+  gb:'G',gigabyte:'G',gigabytes:'G', mb:'M',megabyte:'M',megabytes:'M',
+  kb:'k',kilobyte:'k',kilobytes:'k', tb:'T',terabyte:'T',terabytes:'T',
+  b:'c',byte:'c',bytes:'c',
+};
+
+//section:time_units
+const TIME_UNITS = {
+  minute:1/1440, minutes:1/1440, hour:1/24, hours:1/24,
+  day:1, days:1, week:7, weeks:7, month:30, months:30, year:365, years:365,
+};
+
+//section:path_aliases
+const PATH_ALIASES = { home:'~', here:'.', current:'.', parent:'..', root:'/' };
+
+// ─────────────────────────────────────────────────────────────────────────────
+//section:dispatch
+// key = verbBit:nounBit:majorBit → family + template
+// ─────────────────────────────────────────────────────────────────────────────
+function k(v,n,j){ return `${v>>>0}:${n>>>0}:${j>>>0}`; }
+
+const DISPATCH = {
+  // ls — no major modifier
+  [k(V.list, N.file,      0)]:                              {family:'ls',          tpl:'ls -lh {path}'},
+  [k(V.list, N.directory, 0)]:                              {family:'ls',          tpl:'ls -lhd {path}/*/'},
+  // find — list verb
+  [k(V.list, N.file, J.glob)]:                              {family:'find',        tpl:'find {path} -type f -name "{glob}" 2>/dev/null'},
+  [k(V.list, N.file, J.size)]:                              {family:'find',        tpl:'find {path} -type f -size {size} 2>/dev/null'},
+  [k(V.list, N.file, J.modified)]:                          {family:'find',        tpl:'find {path} -type f -mtime {mtime} 2>/dev/null'},
+  [k(V.list, N.file, J.glob|J.size)]:                       {family:'find',        tpl:'find {path} -type f -name "{glob}" -size {size} 2>/dev/null'},
+  [k(V.list, N.file, J.glob|J.modified)]:                   {family:'find',        tpl:'find {path} -type f -name "{glob}" -mtime {mtime} 2>/dev/null'},
+  [k(V.list, N.file, J.size|J.modified)]:                   {family:'find',        tpl:'find {path} -type f -size {size} -mtime {mtime} 2>/dev/null'},
+  [k(V.list, N.file, J.glob|J.size|J.modified)]:            {family:'find',        tpl:'find {path} -type f -name "{glob}" -size {size} -mtime {mtime} 2>/dev/null'},
+  // find — find verb
+  [k(V.find, N.file, 0)]:                                   {family:'find',        tpl:'find {path} -type f 2>/dev/null'},
+  [k(V.find, N.file, J.glob)]:                              {family:'find',        tpl:'find {path} -type f -name "{glob}" 2>/dev/null'},
+  [k(V.find, N.file, J.size)]:                              {family:'find',        tpl:'find {path} -type f -size {size} 2>/dev/null'},
+  [k(V.find, N.file, J.modified)]:                          {family:'find',        tpl:'find {path} -type f -mtime {mtime} 2>/dev/null'},
+  [k(V.find, N.file, J.glob|J.size)]:                       {family:'find',        tpl:'find {path} -type f -name "{glob}" -size {size} 2>/dev/null'},
+  [k(V.find, N.file, J.glob|J.modified)]:                   {family:'find',        tpl:'find {path} -type f -name "{glob}" -mtime {mtime} 2>/dev/null'},
+  [k(V.find, N.file, J.size|J.modified)]:                   {family:'find',        tpl:'find {path} -type f -size {size} -mtime {mtime} 2>/dev/null'},
+  [k(V.find, N.file, J.glob|J.size|J.modified)]:            {family:'find',        tpl:'find {path} -type f -name "{glob}" -size {size} -mtime {mtime} 2>/dev/null'},
+  [k(V.find, N.directory, 0)]:                              {family:'find',        tpl:'find {path} -type d 2>/dev/null'},
+  [k(V.find, N.directory, J.glob)]:                         {family:'find',        tpl:'find {path} -type d -name "{glob}" 2>/dev/null'},
+  // grep
+  [k(V.list, N.file, J.containing)]:                        {family:'grep',        tpl:'grep -r "{term}" {path}'},
+  [k(V.find, N.file, J.containing)]:                        {family:'grep',        tpl:'grep -r "{term}" {path}'},
+  [k(V.grep, N.file, 0)]:                                   {family:'grep',        tpl:'grep "{term}" {path}'},
+  [k(V.grep, N.file, J.glob)]:                              {family:'grep',        tpl:'grep "{term}" {path}/{glob}'},
+  // find|grep compound
+  [k(V.list, N.file, J.glob|J.containing)]:                 {family:'find|grep',   tpl:'find {path} -type f -name "{glob}" 2>/dev/null | xargs grep "{term}"'},
+  [k(V.list, N.file, J.size|J.containing)]:                 {family:'find|grep',   tpl:'find {path} -type f -size {size} 2>/dev/null | xargs grep "{term}"'},
+  [k(V.list, N.file, J.modified|J.containing)]:             {family:'find|grep',   tpl:'find {path} -type f -mtime {mtime} 2>/dev/null | xargs grep "{term}"'},
+  [k(V.find, N.file, J.glob|J.containing)]:                 {family:'find|grep',   tpl:'find {path} -type f -name "{glob}" 2>/dev/null | xargs grep "{term}"'},
+  [k(V.find, N.file, J.size|J.containing)]:                 {family:'find|grep',   tpl:'find {path} -type f -size {size} 2>/dev/null | xargs grep "{term}"'},
+  [k(V.find, N.file, J.modified|J.containing)]:             {family:'find|grep',   tpl:'find {path} -type f -mtime {mtime} 2>/dev/null | xargs grep "{term}"'},
+  // folders having files
+  [k(V.list, N.directory, J.glob)]:                         {family:'find|dirname', tpl:'find {path} -type f -name "{glob}" 2>/dev/null | xargs -I% dirname % | sort -u'},
+  [k(V.find, N.directory, J.glob)]:                         {family:'find|dirname', tpl:'find {path} -type f -name "{glob}" 2>/dev/null | xargs -I% dirname % | sort -u'},
+  // ps
+  [k(V.list,    N.process, 0)]:                             {family:'ps',          tpl:'ps aux'},
+  [k(V.inspect, N.process, 0)]:                             {family:'ps',          tpl:'ps aux'},
+  [k(V.list,    N.process, J.containing)]:                  {family:'ps',          tpl:'ps aux | grep "{term}"'},
+  [k(V.inspect, N.process, J.containing)]:                  {family:'ps',          tpl:'ps aux | grep "{term}"'},
+  [k(V.list,    N.process, J.tree)]:                        {family:'ps',          tpl:'ps f aux'},
+  [k(V.inspect, N.process, J.tree)]:                        {family:'ps',          tpl:'ps f aux'},
+  [k(V.list,    N.process, J.sort)]:                        {family:'ps',          tpl:'ps aux -r'},
+  [k(V.inspect, N.process, J.sort)]:                        {family:'ps',          tpl:'ps aux -r'},
+  [k(V.list,    N.process, J.lines)]:                       {family:'ps',          tpl:'ps aux -r | head -n {lines}'},
+  [k(V.inspect, N.process, J.lines)]:                       {family:'ps',          tpl:'ps aux -r | head -n {lines}'},
+  // kill / pkill
+  [k(V.kill, N.process, J.pid)]:                            {family:'kill',        tpl:'kill {signal} {pid}'},
+  [k(V.kill, N.process, J.app)]:                            {family:'pkill',       tpl:'pkill -i {appname}'},
+  [k(V.kill, N.process, 0)]:                                {family:'pkill',       tpl:'pkill {appname}'},
+  // tail
+  [k(V.tail, N.file, 0)]:                                   {family:'tail',        tpl:'tail -n {lines} {path}'},
+  [k(V.tail, N.log,  0)]:                                   {family:'tail',        tpl:'tail -n {lines} {path}'},
+  [k(V.tail, N.file, J.follow)]:                            {family:'tail',        tpl:'tail -f {path}'},
+  [k(V.tail, N.log,  J.follow)]:                            {family:'tail',        tpl:'tail -f {path}'},
+  [k(V.tail, N.file, J.lines)]:                             {family:'tail',        tpl:'tail -n {lines} {path}'},
+  [k(V.tail, N.log,  J.lines)]:                             {family:'tail',        tpl:'tail -n {lines} {path}'},
+  // cat / cp / mv / rm / mkdir / touch / cd
+  [k(V.read,   N.file,      0)]:                            {family:'cat',         tpl:'cat {path}'},
+  [k(V.copy,   N.file,      0)]:                            {family:'cp',          tpl:'cp {path} {dest}'},
+  [k(V.copy,   N.directory, 0)]:                            {family:'cp',          tpl:'cp -r {path} {dest}'},
+  [k(V.move,   N.file,      0)]:                            {family:'mv',          tpl:'mv {path} {dest}'},
+  [k(V.move,   N.directory, 0)]:                            {family:'mv',          tpl:'mv {path} {dest}'},
+  [k(V.delete, N.file,      0)]:                            {family:'rm',          tpl:'rm {path}'},
+  [k(V.delete, N.directory, 0)]:                            {family:'rm',          tpl:'rm -r {path}'},
+  [k(V.create, N.directory, 0)]:                            {family:'mkdir',       tpl:'mkdir -p {path}'},
+  [k(V.create, N.file,      0)]:                            {family:'touch',       tpl:'touch {path}'},
+  [k(V.navigate, N.directory, 0)]:                          {family:'cd',          tpl:'cd {path}'},
+  // open
+  [k(V.open, N.app, J.app)]:                                {family:'open',        tpl:'open -a "{appname}"'},
+  [k(V.open, N.app, 0)]:                                    {family:'open',        tpl:'open -a "{appname}"'},
+  [k(V.open, N.directory, 0)]:                              {family:'open',        tpl:'open {path}'},
+  [k(V.open, N.file,      0)]:                              {family:'open',        tpl:'open {path}'},
+  // source / pip / date
+  [k(V.source, N.venv,         0)]:                         {family:'source',      tpl:'source {path}/venv/bin/activate'},
+  [k(V.pip,    N.package,      0)]:                         {family:'pip',         tpl:'python3 -m pip install {pkg}'},
+  [k(V.pip,    N.requirements, 0)]:                         {family:'pip',         tpl:'python3 -m pip install -r {path}'},
+  [k(V.date,   0,              0)]:                         {family:'date',        tpl:'date "+%Y-%m-%d %H:%M:%S"'},
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//section:helpers
+// ─────────────────────────────────────────────────────────────────────────────
+function toHex(n){ return '0x'+(n>>>0).toString(16).padStart(8,'0'); }
+function popcount(n){
+  n=n>>>0; n=n-((n>>1)&0x55555555); n=(n&0x33333333)+((n>>2)&0x33333333);
+  return(((n+(n>>4))&0x0f0f0f0f)*0x01010101)>>>24;
+}
+function buildSynMap(dict){
+  const m={};
+  for(const[c,syns]of Object.entries(dict)) for(const s of syns) m[s.toLowerCase()]=c;
+  return m;
+}
+const VERB_MAP = buildSynMap(VERB_SYNS);
+const NOUN_MAP = buildSynMap(NOUN_SYNS);
+
+//func:tokenise
+function tokenise(input){
+  const tokens=[], re=/\S+/g; let m;
+  while((m=re.exec(input))!==null){
+    const word=m[0].replace(/^["']|["']$/g,'');
+    tokens.push({pos:m.index, word, lower:word.toLowerCase(), consumed:false});
+  }
+  return tokens;
+}
+
+//func:consume
+function consume(tokens,i,len,role,value){
+  for(let j=i;j<i+len;j++) tokens[j].consumed=true;
+  tokens[i].role=role;
+  tokens[i].value=value!==undefined?value:tokens[i].word;
+}
+
+//func:tryPhrase
+function tryPhrase(tokens,i,len,map){
+  if(i+len>tokens.length) return null;
+  for(let j=i;j<i+len;j++) if(tokens[j].consumed) return null;
+  return map[tokens.slice(i,i+len).map(t=>t.lower).join(' ')]||null;
+}
+
+//func:parseSizeVal
+function parseSizeVal(tok,sign){
+  const m=tok.match(/^(\d+(?:\.\d+)?)([a-z]*)$/i);
+  if(!m) return null;
+  return sign+m[1]+(SIZE_UNITS[(m[2]||'').toLowerCase()]||'M');
+}
+
+//func:parseMtimeTokens
+function parseMtimeTokens(tokens,i){
+  // expects: [modified] [in] [last] N unit  OR  last N unit
+  let j=i;
+  if(tokens[j].lower==='modified'){ j++;
+    if(j<tokens.length&&tokens[j].lower==='in'&&!tokens[j].consumed){ tokens[j].consumed=true; j++; }
+    if(j<tokens.length&&tokens[j].lower==='last'&&!tokens[j].consumed){ tokens[j].consumed=true; j++; }
+  } else if(tokens[j].lower==='last'){ j++; } else return null;
+  if(j>=tokens.length||tokens[j].consumed) return null;
+  const n=parseInt(tokens[j].lower); if(isNaN(n)) return null;
+  tokens[j].consumed=true; j++;
+  if(j>=tokens.length||tokens[j].consumed) return null;
+  const unit=tokens[j].lower.replace(/s$/,'');
+  const factor=TIME_UNITS[unit]||TIME_UNITS[unit+'s'];
+  if(!factor) return null;
+  tokens[j].consumed=true;
+  for(let x=i;x<j;x++) tokens[x].consumed=true;
+  return '-'+Math.round(n*factor);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//section:layer1
+// LAYER 1 — scan verb + noun + major_modifier simultaneously → dispatch key
+// ─────────────────────────────────────────────────────────────────────────────
+//func:layer1
+function layer1(tokens){
+  let verbBit=0, nounBit=0, majorBit=0;
+  const verbName=[], nounName=[], majorName=[];
+  // bracket tokens handled first
+  const BRACKET_RE=/^(\w+)\(([^)]+)\)$/;
+  for(let i=0;i<tokens.length;i++){
+    const m=tokens[i].word.match(BRACKET_RE);
+    if(!m) continue;
+    const name=m[1].toLowerCase(), val=m[2].trim();
+    const ncanon=NOUN_MAP[name];
+    if(ncanon){
+      tokens[i].role='bracket_noun'; tokens[i].value={noun:ncanon,filter:val};
+      nounBit|=N[ncanon]; nounName.push(ncanon+'[bracket:'+val+']');
+      // filter type determines major modifier
+      if(ncanon==='process'){ majorBit|=J.containing; majorName.push('containing[bracket]'); }
+      else { majorBit|=J.glob; majorName.push('glob[bracket:'+val+']'); }
+      tokens[i].consumed=true; continue;
+    }
+    // modifier brackets
+    if(['name','named','glob','ext','extension'].includes(name)){
+      tokens[i].role='bracket_glob'; tokens[i].value=val;
+      majorBit|=J.glob; majorName.push('glob[bracket:'+val+']');
+      tokens[i].consumed=true; continue;
+    }
+    if(name==='containing'||name==='matching'){
+      tokens[i].role='bracket_containing'; tokens[i].value=val;
+      majorBit|=J.containing; majorName.push('containing[bracket:'+val+']');
+      tokens[i].consumed=true; continue;
+    }
+    if(name==='size'){
+      const s=val.match(/^([<>]?)(\d+(?:\.\d+)?)\s*([a-z]*)$/i);
+      if(s){ const sign=s[1]==='<'?'-':'+'; const u=SIZE_UNITS[(s[3]||'').toLowerCase()]||'M';
+        tokens[i].role='bracket_size'; tokens[i].value=sign+s[2]+u;
+        majorBit|=J.size; majorName.push('size[bracket:'+tokens[i].value+']');
+        tokens[i].consumed=true; }
+      continue;
+    }
+    if(name==='modified'){
+      const md=val.match(/^([<>]?)(\d+)(day|days|week|weeks|month|months|hour|hours|minute|minutes|year|years)$/i);
+      if(md){ const n=parseInt(md[2]); const u=md[3].toLowerCase().replace(/s$/,'');
+        tokens[i].role='bracket_mtime'; tokens[i].value='-'+Math.round(n*(TIME_UNITS[u]||1));
+        majorBit|=J.modified; majorName.push('modified[bracket]');
+        tokens[i].consumed=true; }
+      continue;
+    }
+    if(name==='lines'||name==='top'){
+      const n=parseInt(val); if(!isNaN(n)){
+        tokens[i].role='bracket_lines'; tokens[i].value=String(n);
+        majorBit|=J.lines; majorName.push('lines[bracket:'+n+']');
+        tokens[i].consumed=true; }
+      continue;
+    }
+  }
+
+  // my path expansion — consume early so noun scan skips
+  const SRC_PREPS=['within','inside','beneath','under','from','at','in','on'];
+  const DEST_PREPS=['toward','onto','into','to'];
+  let srcFound=false, destFound=false;
+  for(let i=0;i<tokens.length;i++){
+    if(tokens[i].consumed) continue;
+    const lo=tokens[i].lower;
+    if(lo==='my'&&i+1<tokens.length&&!tokens[i+1].consumed){
+      const nxt=tokens[i+1].lower;
+      if(nxt==='home'){
+        const len=(i+2<tokens.length&&['folder','directory','dir'].includes(tokens[i+2]?.lower))?3:2;
+        consume(tokens,i,len,'path','~'); srcFound=true; continue;
+      }
+      if(i+2<tokens.length&&['folder','directory','dir'].includes(tokens[i+2]?.lower)){
+        consume(tokens,i,3,'path','~/'+tokens[i+1].word); srcFound=true; continue;
+      }
+      const KNOWN=['downloads','documents','desktop','projects','project','dev','src','code','work','public','sites','site'];
+      if(KNOWN.includes(nxt)){ consume(tokens,i,2,'path','~/'+tokens[i+1].word); srcFound=true; continue; }
+    }
+    if(!destFound&&DEST_PREPS.includes(lo)&&i+1<tokens.length&&!tokens[i+1].consumed){
+      const nxt=tokens[i+1];
+      if(/^(~\/|\/|\.\/|~$)/.test(nxt.word)||nxt.lower in PATH_ALIASES){
+        tokens[i].consumed=true;
+        consume(tokens,i+1,1,'dest',PATH_ALIASES[nxt.lower]||nxt.word); destFound=true; continue;
+      }
+    }
+    if(!srcFound&&SRC_PREPS.includes(lo)&&i+1<tokens.length&&!tokens[i+1].consumed){
+      const nxt=tokens[i+1];
+      if(/^(~\/|\/|\.\/|~$)/.test(nxt.word)||nxt.lower in PATH_ALIASES){
+        tokens[i].consumed=true;
+        consume(tokens,i+1,1,'path',PATH_ALIASES[nxt.lower]||nxt.word); srcFound=true; continue;
+      }
+    }
+    if(!srcFound&&/^(~\/|\/|\.\/|~$)/.test(tokens[i].word)){
+      consume(tokens,i,1,'path',tokens[i].word); srcFound=true;
+    }
+  }
+
+  // scan verb, noun, major modifiers simultaneously
+  for(let i=0;i<tokens.length;i++){
+    if(tokens[i].consumed) continue;
+    const lo=tokens[i].lower, word=tokens[i].word;
+
+    // verb — longest first
+    if(!verbBit){
+      for(const len of [3,2,1]){
+        const c=tryPhrase(tokens,i,len,VERB_MAP);
+        if(c){ verbBit|=V[c]; verbName.push(c); consume(tokens,i,len,'verb',c); break; }
+      }
+      if(tokens[i].role==='verb') continue;
+    }
+
+    // noun — longest first, skip if already consumed as path
+    for(const len of [3,2,1]){
+      const c=tryPhrase(tokens,i,len,NOUN_MAP);
+      if(c){ nounBit|=N[c]; nounName.push(c+'('+word+')'); consume(tokens,i,len,'noun',c); break; }
+    }
+    if(tokens[i].role==='noun') continue;
+
+    // major modifiers — detect in same pass
+
+    // top N → lines
+    if(lo==='top'&&i+1<tokens.length&&!tokens[i+1].consumed){
+      const n=parseInt(tokens[i+1].lower);
+      if(!isNaN(n)){ majorBit|=J.lines; majorName.push('lines(top '+n+')');
+        tokens[i].consumed=true; tokens[i+1].consumed=true;
+        tokens[i].role='major_lines'; tokens[i].value=String(n); continue; }
+    }
+
+    // lang → glob major modifier
+    if(LANG_MAP[lo]){
+      majorBit|=J.glob; majorName.push('glob('+LANG_MAP[lo]+') via lang('+lo+')');
+      tokens[i].role='major_lang'; tokens[i].value=LANG_MAP[lo]; tokens[i].consumed=true; continue;
+    }
+
+    // bare extension .py *.py
+    const extM=word.match(/^\*(\.\w+)$|^(\.\w+)$/);
+    if(extM){ const ext=extM[1]||extM[2];
+      majorBit|=J.glob; majorName.push('glob(*'+ext+')');
+      tokens[i].role='major_glob'; tokens[i].value='*'+ext; tokens[i].consumed=true; continue;
+    }
+
+    // size comparison
+    if(['larger','bigger','more','greater','over','smaller','less','under'].includes(lo)){
+      const sign=(lo==='smaller'||lo==='less'||lo==='under')?'-':'+';
+      let ni=i+1;
+      if(ni<tokens.length&&tokens[ni].lower==='than'&&!tokens[ni].consumed) ni++;
+      if(ni<tokens.length&&!tokens[ni].consumed){
+        const p=parseSizeVal(tokens[ni].lower,sign);
+        if(p){ majorBit|=J.size; majorName.push('size('+p+')');
+          tokens[i].role='major_size'; tokens[i].value=p;
+          for(let j=i;j<=ni;j++) tokens[j].consumed=true;
+          tokens[i].consumed=false; tokens[i].consumed=true; continue; }
+      }
+    }
+    if(lo==='at'&&i+1<tokens.length&&(tokens[i+1].lower==='least'||tokens[i+1].lower==='most')&&!tokens[i+1].consumed){
+      const sign2=tokens[i+1].lower==='least'?'+':'-';
+      const ni2=i+2;
+      if(ni2<tokens.length&&!tokens[ni2].consumed){
+        const p=parseSizeVal(tokens[ni2].lower,sign2);
+        if(p){ majorBit|=J.size; majorName.push('size('+p+')');
+          tokens[i].role='major_size'; tokens[i].value=p;
+          for(let j=i;j<=ni2;j++) tokens[j].consumed=true; tokens[i].consumed=true; continue; }
+      }
+    }
+
+    // mtime
+    if((lo==='modified'||lo==='last')&&i+1<tokens.length){
+      const mt=parseMtimeTokens(tokens,i);
+      if(mt!==null){ majorBit|=J.modified; majorName.push('modified('+mt+')');
+        tokens[i].role='major_mtime'; tokens[i].value=mt; tokens[i].consumed=true; continue; }
+    }
+
+    // containing/matching
+    if((lo==='containing'||lo==='matching')&&i+1<tokens.length&&!tokens[i+1].consumed){
+      majorBit|=J.containing; majorName.push('containing('+tokens[i+1].word+')');
+      tokens[i].consumed=true;
+      tokens[i+1].role='major_containing'; tokens[i+1].value=tokens[i+1].word; tokens[i+1].consumed=true; continue;
+    }
+
+    // app name — major modifier for open/kill
+    let appFound=false;
+    for(const len of [3,2,1]){
+      if(i+len>tokens.length) continue;
+      const phrase=tokens.slice(i,i+len).filter(t=>!t.consumed).map(t=>t.lower).join(' ');
+      if(APP_MAP[phrase]){
+        majorBit|=J.app; majorName.push('app('+APP_MAP[phrase]+')');
+        tokens[i].role='major_app'; tokens[i].value=APP_MAP[phrase];
+        for(let j=i;j<i+len;j++) tokens[j].consumed=true; tokens[i].consumed=true;
+        appFound=true; break;
+      }
+    }
+    if(appFound) continue;
+
+    // follow
+    if(['follow','live','streaming'].includes(lo)){
+      majorBit|=J.follow; majorName.push('follow');
+      tokens[i].role='major_follow'; tokens[i].consumed=true; continue;
+    }
+
+    // sort
+    if(lo==='by'&&i+1<tokens.length&&!tokens[i+1].consumed){
+      const sf={size:'-S',date:'-t',name:'',extension:'-X',cpu:'-r',memory:'-r',mem:'-r'};
+      const sk=tokens[i+1].lower;
+      if(sf[sk]!==undefined){ majorBit|=J.sort; majorName.push('sort('+sk+')');
+        tokens[i].role='major_sort'; tokens[i].value=sf[sk];
+        tokens[i].consumed=true; tokens[i+1].consumed=true; continue; }
+    }
+    if(lo==='largest'&&i+1<tokens.length&&tokens[i+1].lower==='first'&&!tokens[i+1].consumed){
+      majorBit|=J.sort; majorName.push('sort(size)');
+      tokens[i].role='major_sort'; tokens[i].value='-S';
+      tokens[i].consumed=true; tokens[i+1].consumed=true; continue;
+    }
+    if(lo==='newest'&&i+1<tokens.length&&tokens[i+1].lower==='first'&&!tokens[i+1].consumed){
+      majorBit|=J.sort; majorName.push('sort(time)');
+      tokens[i].role='major_sort'; tokens[i].value='-t';
+      tokens[i].consumed=true; tokens[i+1].consumed=true; continue;
+    }
+
+    // tree
+    if(['tree','forest'].includes(lo)){
+      majorBit|=J.tree; majorName.push('tree');
+      tokens[i].role='major_tree'; tokens[i].consumed=true; continue;
+    }
+
+    // N lines
+    if(/^\d+$/.test(lo)&&i+1<tokens.length&&tokens[i+1].lower==='lines'&&!tokens[i+1].consumed){
+      majorBit|=J.lines; majorName.push('lines('+lo+')');
+      tokens[i].role='major_lines'; tokens[i].value=lo;
+      tokens[i].consumed=true; tokens[i+1].consumed=true; continue;
+    }
+    if(lo==='last'&&i+2<tokens.length&&/^\d+$/.test(tokens[i+1].lower)&&tokens[i+2].lower==='lines'&&!tokens[i+1].consumed&&!tokens[i+2].consumed){
+      majorBit|=J.lines; majorName.push('lines('+tokens[i+1].lower+')');
+      tokens[i].role='major_lines'; tokens[i].value=tokens[i+1].lower;
+      tokens[i].consumed=true; tokens[i+1].consumed=true; tokens[i+2].consumed=true; continue;
+    }
+
+    // signal (only in kill context — checked post-dispatch in layer2)
+    // pid bare number
+    if(/^\d{2,6}$/.test(lo)){
+      majorBit|=J.pid; majorName.push('pid('+lo+')');
+      tokens[i].role='major_pid'; tokens[i].value=lo; tokens[i].consumed=true; continue;
+    }
+  }
+
+  // noun inference from verb
+  if(!nounBit){
+    if     (verbBit&V.kill)     { nounBit=N.process;   nounName.push('process(inferred kill)'); }
+    else if(verbBit&V.inspect)  { nounBit=N.process;   nounName.push('process(inferred inspect)'); }
+    else if(verbBit&V.navigate) { nounBit=N.directory; nounName.push('directory(inferred navigate)'); }
+    else if(verbBit&V.source)   { nounBit=N.venv;      nounName.push('venv(inferred source)'); }
+    else if(verbBit&V.pip)      { nounBit=N.package;   nounName.push('package(inferred pip)'); }
+    else if(verbBit&V.open)     { nounBit=N.app;       nounName.push('app(inferred open)'); }
+    else if(verbBit&V.date)     { /* no noun */ }
+    else { nounBit=N.file; nounName.push('file(default)'); }
+  }
+
+  // pip always package
+  if((verbBit&V.pip)&&!(nounBit&N.package)&&!(nounBit&N.requirements)){
+    nounBit=N.package; nounName.push('package(pip default)');
+  }
+
+  // open + app_major → N.app
+  if((verbBit&V.open)&&(majorBit&J.app)) nounBit=N.app;
+
+  // process + list → inspect
+  if((nounBit&N.process)&&(verbBit&V.list)){
+    verbBit|=V.inspect; verbName.push('inspect(upgraded)');
+  }
+
+  // lang in process context → containing not glob
+  if((nounBit&N.process)&&(majorBit&J.glob)){
+    // check if glob came from lang
+    const langTok=tokens.find(t=>t.role==='major_lang');
+    if(langTok){
+      majorBit&=~J.glob; majorBit|=J.containing;
+      langTok.role='major_containing'; langTok.value=langTok.value.replace('*.','');
+      const idx=majorName.findIndex(m=>m.startsWith('glob'));
+      if(idx>=0) majorName[idx]='containing('+langTok.value+') via lang';
+    }
+  }
+
+  // file+directory+glob → keep directory if directory was explicit (folders having files)
+  // otherwise clear directory
+  if((nounBit&N.file)&&(nounBit&N.directory)&&(majorBit&J.glob)){
+    const dirExplicit=tokens.some(t=>t.role==='noun'&&t.value==='directory');
+    if(dirExplicit){ nounBit&=~N.file; nounName.push('file cleared — directory+glob=containing intent'); }
+    else { nounBit&=~N.directory; nounName.push('directory cleared — glob implies file search'); }
+  }
+  if((nounBit&N.file)&&(nounBit&N.directory)&&!(majorBit&J.glob)){
+    nounBit&=~N.directory; nounName.push('directory cleared — no glob');
+  }
+
+  return {verbBit, nounBit, majorBit, verbName, nounName, majorName};
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//section:layer2
+// LAYER 2 — extract slots for confirmed family
+// ─────────────────────────────────────────────────────────────────────────────
+//func:layer2
+function layer2(tokens, family, verbBit){
+  const slots={
+    path:'.', dest:null, glob:null, size:null, mtime:null,
+    term:null, signal:null, pid:null, appname:null,
+    lines:'10', pkg:null, sortflag:null,
+    force:false, recursive:false, hidden:false, iname:false, empty:false, count:false,
+  };
+
+  // collect values already assigned in layer1
+  for(const t of tokens){
+    if(!t.role||t.role==='consumed') continue;
+    switch(t.role){
+      case 'path':              slots.path=t.value; break;
+      case 'dest':              slots.dest=t.value; break;
+      case 'bracket_noun':
+        if(t.value.noun==='process') slots.term=t.value.filter;
+        else slots.glob=t.value.filter;
+        break;
+      case 'bracket_glob':      slots.glob=t.value; break;
+      case 'bracket_containing':slots.term=t.value; break;
+      case 'bracket_size':      slots.size=t.value; break;
+      case 'bracket_mtime':     slots.mtime=t.value; break;
+      case 'bracket_lines':     slots.lines=t.value; break;
+      case 'major_lang':
+        if(family==='ps'||family==='pkill'||family==='kill') slots.term=t.value.replace('*.','');
+        else slots.glob=t.value;
+        break;
+      case 'major_glob':        slots.glob=t.value; break;
+      case 'major_size':        slots.size=t.value; break;
+      case 'major_mtime':       slots.mtime=t.value; break;
+      case 'major_containing':  slots.term=t.value; break;
+      case 'major_app':         slots.appname=t.value; break;
+      case 'major_lines':       slots.lines=t.value; break;
+      case 'major_sort':        slots.sortflag=t.value; break;
+      case 'major_pid':         slots.pid=t.value; break;
+    }
+  }
+
+  // family-specific minor slot extraction from remaining unconsumed tokens
+  for(let i=0;i<tokens.length;i++){
+    if(tokens[i].consumed) continue;
+    const lo=tokens[i].lower, word=tokens[i].word;
+
+    // universal minor flags
+    if(['recursively','recursive','deeply','deep'].includes(lo)){ slots.recursive=true; tokens[i].consumed=true; continue; }
+    if(['hidden','invisible'].includes(lo)){ slots.hidden=true; tokens[i].consumed=true; continue; }
+    if(lo==='how'&&i+1<tokens.length&&tokens[i+1].lower==='many'){ slots.count=true; tokens[i].consumed=true; tokens[i+1].consumed=true; continue; }
+    if(lo==='empty'){ slots.empty=true; tokens[i].consumed=true; continue; }
+    if(lo==='case'&&i+1<tokens.length&&tokens[i+1].lower==='insensitive'){ slots.iname=true; tokens[i].consumed=true; tokens[i+1].consumed=true; continue; }
+
+    // kill family — signal and process name
+    if((verbBit&V.kill)&&family!=='ls'&&family!=='find'){
+      if(!slots.signal){
+        if(i+1<tokens.length&&!tokens[i+1].consumed){
+          const two=lo+' '+tokens[i+1].lower;
+          if(SIGNAL_MAP[two]){ slots.signal=SIGNAL_MAP[two]; tokens[i].consumed=true; tokens[i+1].consumed=true; continue; }
+        }
+        if(SIGNAL_MAP[lo]){ slots.signal=SIGNAL_MAP[lo]; tokens[i].consumed=true; continue; }
+      }
+      // force flag in kill context = -9 signal
+      if(['force','forcefully'].includes(lo)){ slots.signal='-9'; tokens[i].consumed=true; continue; }
+      // any unknown word = process name
+      if(!slots.appname&&!['process','the','a','an','kill','terminate'].includes(lo)){
+        slots.appname=lo; tokens[i].consumed=true; continue;
+      }
+    }
+
+    // delete family — force flag
+    if((verbBit&V.delete)&&['force','forcefully','forced'].includes(lo)){
+      slots.force=true; tokens[i].consumed=true; continue;
+    }
+
+    // pip family — package name
+    if(verbBit&V.pip){
+      if(['install','uninstall'].includes(lo)){ tokens[i].consumed=true; continue; }
+      if(!slots.pkg&&/^[a-z][a-z0-9_\-]+$/.test(lo)&&!['pip','package','from','requirements','with'].includes(lo)){
+        slots.pkg=word; tokens[i].consumed=true; continue;
+      }
+    }
+  }
+
+  // defaults
+  if(!slots.signal) slots.signal='-15';
+
+  return slots;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//section:layer3
+// LAYER 3 — normalise + fill template → command string
+// ─────────────────────────────────────────────────────────────────────────────
+//func:layer3
+function layer3(entry, slots){
+  let cmd=entry.tpl;
+  const isMac=/mac|iphone|ipad/i.test(navigator.userAgent);
+
+  // minor flag application
+  if(slots.recursive){ cmd=cmd.replace('grep "','grep -r "'); cmd=cmd.replace('ls -lh','ls -lhR'); }
+  if(slots.hidden)    cmd=cmd.replace('ls -lh','ls -lah');
+  if(slots.iname)     cmd=cmd.replace('-name ','-iname ');
+  if(slots.count)     cmd+=' | wc -l';
+  if(slots.force&&cmd.startsWith('rm')){ if(!cmd.includes('-rf')) cmd=cmd.replace('rm -r','rm -rf').replace(/^rm /,'rm -f '); }
+  if(!slots.recursive&&cmd.startsWith('find')&&!cmd.includes('-maxdepth')&&!cmd.includes('2>/dev/null'))
+    cmd=cmd.replace(/^(find \S+)/,'$1 -maxdepth 5');
+
+  // platform
+  if(!isMac){
+    cmd=cmd.replace('open -a ','xdg-open ');
+    cmd=cmd.replace('ps aux -r','ps aux --sort=-%cpu');
+  }
+
+  // fill slots
+  cmd=cmd
+    .replace('{path}',    slots.path||'.')
+    .replace('{dest}',    slots.dest||'.')
+    .replace('{glob}',    slots.glob||'*')
+    .replace('{size}',    slots.size||'+1M')
+    .replace('{mtime}',   slots.mtime||'-7')
+    .replace('{term}',    slots.term||'')
+    .replace('{signal}',  slots.signal||'-15')
+    .replace('{pid}',     slots.pid||'')
+    .replace('{appname}', slots.appname||'')
+    .replace('{lines}',   slots.lines||'10')
+    .replace('{pkg}',     slots.pkg||'')
+    .replace('{sortflag}',slots.sortflag||'');
+
+  return cmd.replace(/\s+/g,' ').trim();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//section:dispatch_lookup
+// ─────────────────────────────────────────────────────────────────────────────
+//func:dispatchLookup
+function dispatchLookup(verbBit,nounBit,majorBit){
+  const exact=DISPATCH[k(verbBit,nounBit,majorBit)];
+  if(exact) return exact;
+  let best=null, bestScore=-1;
+  for(const[key,entry]of Object.entries(DISPATCH)){
+    const[kv,kn,km]=key.split(':').map(Number);
+    const vMatch=(verbBit&kv)!==0;
+    const nMatch=(nounBit&kn)!==0||kn===0;
+    const mMatch=(majorBit&km)===km;
+    if(vMatch&&nMatch&&mMatch){
+      const score=popcount(kv)+popcount(kn)+popcount(km);
+      if(score>bestScore){bestScore=score;best=entry;}
+    }
+  }
+  return best;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//section:predicate
+// ─────────────────────────────────────────────────────────────────────────────
+//func:toPredicate
+function toPredicate(verbBit,nounBit,slots){
+  const vname=Object.keys(V).find(vk=>verbBit&V[vk])||'?';
+  const nname=Object.keys(N).find(nk=>nounBit&N[nk])||'?';
+  const parts=[];
+  if(slots.path&&slots.path!=='.') parts.push('path('+slots.path+')');
+  if(slots.dest)    parts.push('dest('+slots.dest+')');
+  if(slots.glob)    parts.push('glob('+slots.glob+')');
+  if(slots.size)    parts.push('size('+slots.size+')');
+  if(slots.mtime)   parts.push('modified('+slots.mtime+')');
+  if(slots.term)    parts.push('containing('+slots.term+')');
+  if(slots.signal&&slots.signal!=='-15') parts.push('signal('+slots.signal+')');
+  if(slots.pid)     parts.push('pid('+slots.pid+')');
+  if(slots.appname) parts.push('app('+slots.appname+')');
+  if(slots.lines&&slots.lines!=='10') parts.push('lines('+slots.lines+')');
+  if(slots.recursive) parts.push('recursive');
+  if(slots.force)     parts.push('force');
+  if(slots.hidden)    parts.push('hidden');
+  return vname+'('+nname+(parts.length?', '+parts.join(', '):'')+')';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//section:main_parse
+// ─────────────────────────────────────────────────────────────────────────────
+//func:parseFull
+function parseFull(raw){
+  if(raw.includes('|')){
+    const segs=raw.split('|').map(s=>s.trim());
+    const results=segs.map(s=>parseSingle(s));
+    return {piped:true, segments:results, cmd:results.map(r=>r.cmd||'?').join(' | ')};
+  }
+  return parseSingle(raw);
+}
+
+//func:parseSingle
+function parseSingle(raw){
+  const tokens=tokenise(raw);
+
+  // layer 1 — verb + noun + major → family
+  const {verbBit,nounBit,majorBit,verbName,nounName,majorName}=layer1(tokens);
+
+  const entry=dispatchLookup(verbBit,nounBit,majorBit);
+  if(!entry) return {
+    verbBit,nounBit,majorBit,
+    matched:{verbs:verbName,nouns:nounName,mods:majorName},
+    family:null,cmd:null,predicate:null,
+    error:'unable to parse — verb('+Object.keys(V).filter(vk=>verbBit&V[vk]).join('/')+
+          ') noun('+Object.keys(N).filter(nk=>nounBit&N[nk]).join('/')+
+          ') major('+Object.keys(J).filter(jk=>majorBit&J[jk]).join('/')+')'
+  };
+
+  // layer 2 — extract slots for confirmed family
+  const slots=layer2(tokens, entry.family, verbBit);
+
+  // layer 3 — fill template
+  const cmd=layer3(entry, slots);
+  const predicate=toPredicate(verbBit,nounBit,slots);
+
+  return {
+    verbBit,nounBit,majorBit,
+    matched:{verbs:verbName,nouns:nounName,mods:majorName},
+    family:entry.family, cmd, predicate
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//section:ui
+// ─────────────────────────────────────────────────────────────────────────────
+const T=document.getElementById('terminal');
+const I=document.getElementById('inp');
+
+//func:append
+function append(text,cls){
+  const s=document.createElement('span');
+  if(cls) s.className=cls;
+  s.textContent=text;
+  T.appendChild(s);
+  T.appendChild(document.createTextNode('\n'));
+  T.scrollTop=T.scrollHeight;
+}
+
+//func:run
+function run(txt){
+  txt=(txt||I.value).trim();
+  if(!txt) return;
+  I.value='';
+  append('❯ '+txt,'t-input');
+  const r=parseFull(txt);
+  if(r.piped){
+    r.segments.forEach((seg,idx)=>{
+      if(seg.predicate) append('  seg '+(idx+1)+'     : '+seg.predicate,'t-pred');
+    });
+    append('  command   : '+r.cmd,'t-cmd');
+  } else {
+    append('  verb      : '+toHex(r.verbBit)+'  ('+(r.matched.verbs.join(', ')||'—')+')','t-verb');
+    append('  noun      : '+toHex(r.nounBit)+'  ('+(r.matched.nouns.join(', ')||'—')+')','t-noun');
+    append('  major     : '+toHex(r.majorBit)+'  ('+(r.matched.mods.join(', ') ||'—')+')','t-mod');
+    append('  key       : '+toHex(r.verbBit)+':'+toHex(r.nounBit)+':'+toHex(r.majorBit),'t-key');
+    if(r.error){ append('  '+r.error,'t-err'); }
+    else{
+      append('  family    : '+r.family,'t-fam');
+      append('  predicate : '+r.predicate,'t-pred');
+      append('  command   : '+r.cmd,'t-cmd');
+    }
+  }
+  append('');
+}
+
+document.getElementById('btn').onclick=()=>run();
+document.getElementById('clr').onclick=()=>{while(T.firstChild)T.removeChild(T.firstChild);};
+I.addEventListener('keydown',e=>{if(e.key==='Enter')run();});
+I.focus();
+
+append('humacli — 3-layer pipeline · verb+noun+major → family → slots → command','t-ok');
+append('────────────────────────────────────────────────────────────────','t-dim');
+append('syntax: list python files in ~/src larger than 1MB','t-dim');
+append('        file(*.log)  process(python)  size(>1GB)  name(*.js)','t-dim');
+append('');
+</script>
+</body>
+</html>
